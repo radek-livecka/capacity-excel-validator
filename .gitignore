@@ -8,8 +8,9 @@ __pycache__/
 *.pyc
 *.pyo
 
-# Produkční / soukromá data
+# Data se soukromými / produkčními daty
 sledování_kapacit_2026.xlsx
+sledování_kapacit_test.xlsx
 
 # Claude interní data
 .claude/
