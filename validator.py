@@ -47,6 +47,32 @@ CHECKED_COL_INDICES = [1, 3, 4, 5, 6, 7, 8]   # A, C, D, E, F, G, H
 CHECKED_COL_LETTERS = ["A", "C", "D", "E", "F", "G", "H"]
 
 
+# ── Česká abeceda – řadicí klíč ───────────────────────────────────────────────
+_CZ_ALPHA = [
+    'a', 'á', 'b', 'c', 'č', 'd', 'ď', 'e', 'é', 'ě',
+    'f', 'g', 'h', 'ch', 'i', 'í', 'j', 'k', 'l', 'm',
+    'n', 'ň', 'o', 'ó', 'p', 'q', 'r', 'ř', 's', 'š',
+    't', 'ť', 'u', 'ú', 'ů', 'v', 'w', 'x', 'y', 'ý',
+    'z', 'ž',
+]
+_CZ_ORDER = {ch: i for i, ch in enumerate(_CZ_ALPHA)}
+
+
+def czech_sort_key(name: str) -> tuple:
+    """Vrátí řadicí klíč pro českou abecedu; správně řeší digraf 'ch'."""
+    s = name.lower()
+    tokens = []
+    i = 0
+    while i < len(s):
+        if s[i:i + 2] == 'ch':
+            tokens.append('ch')
+            i += 2
+        else:
+            tokens.append(s[i])
+            i += 1
+    return tuple(_CZ_ORDER.get(t, len(_CZ_ALPHA) + ord(t[0])) for t in tokens)
+
+
 # ── Datové třídy ─────────────────────────────────────────────────────────────
 @dataclass
 class CellError:
@@ -78,6 +104,8 @@ class ValidationResult:
     sheet_results: list = field(default_factory=list)
     total_errors: int = 0
     timestamp: str = ""
+    sheet_order_violations: list = field(default_factory=list)
+    # Každá položka: (název_listu, aktuální_pozice_1, správná_pozice_1)
 
 
 # ── Logika validace ───────────────────────────────────────────────────────────
@@ -104,11 +132,21 @@ class ExcelValidator:
             len(sr.row_errors) for sr in sheet_results if sr.checked
         )
 
+        # Kontrola pořadí listů dle české abecedy
+        checked_names = [sr.sheet_name for sr in sheet_results if sr.checked]
+        expected_order = sorted(checked_names, key=czech_sort_key)
+        sheet_order_violations = [
+            (name, checked_names.index(name) + 1, expected_order.index(name) + 1)
+            for name in checked_names
+            if checked_names.index(name) != expected_order.index(name)
+        ]
+
         return ValidationResult(
             file_path=file_path,
             sheet_results=sheet_results,
             total_errors=total_errors,
             timestamp=datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
+            sheet_order_violations=sheet_order_violations,
         )
 
     def _validate_sheet(self, sheet_name: str, ws) -> SheetResult:
@@ -218,6 +256,17 @@ class ReportFormatter:
             )
         lines.append("")
 
+        if not result.sheet_order_violations:
+            lines.append("POŘADÍ LISTŮ: OK")
+        else:
+            lines.append("POŘADÍ LISTŮ: CHYBA")
+            lines.append("  Listy na špatné pozici:")
+            for name, actual, expected in result.sheet_order_violations:
+                lines.append(
+                    f"    * {name}  (aktuálně pozice {actual}, správně pozice {expected})"
+                )
+        lines.append("")
+
         for sr in result.sheet_results:
             if not sr.checked:
                 continue
@@ -277,6 +326,20 @@ class ReportFormatter:
             )
         add("\n")
 
+        add("POŘADÍ LISTŮ: ", "sheet_header")
+        if not result.sheet_order_violations:
+            add("OK\n", "sheet_ok")
+        else:
+            add("CHYBA\n", "order_err")
+            add("  Listy na špatné pozici:\n", "order_err")
+            for name, actual, expected in result.sheet_order_violations:
+                add(
+                    f"    \u2022 {name}  "
+                    f"(aktu\u00e1ln\u011b pozice {actual}, spr\u00e1vn\u011b pozice {expected})\n",
+                    "order_err",
+                )
+        add("\n")
+
         for sr in result.sheet_results:
             if not sr.checked:
                 continue
@@ -319,7 +382,7 @@ class ValidatorApp(tk.Tk):
 
     def __init__(self):
         super().__init__()
-        self.title("Validator kapacit v1.0")
+        self.title("Validator kapacit v1.1")
         self.geometry("800x600")
         self.minsize(640, 480)
         self.resizable(True, True)
@@ -491,6 +554,7 @@ class ValidatorApp(tk.Tk):
         t.tag_configure("sheet_ok",     font=("Consolas", 9),          foreground="#1A7A1A")
         t.tag_configure("row_err",      font=("Consolas", 9, "bold"),  foreground="#CC0000")
         t.tag_configure("cell_err",     font=("Consolas", 9),          foreground="#AA3300")
+        t.tag_configure("order_err",    font=("Consolas", 9),          foreground="#C05A00")
         t.tag_configure("summary",      font=("Consolas", 9, "bold"),  foreground="#1A1A1A")
         t.tag_configure("normal",       font=("Consolas", 9),          foreground="#1A1A1A")
 
@@ -529,12 +593,26 @@ class ValidatorApp(tk.Tk):
             sheets_with_errors = sum(
                 1 for s in result.sheet_results if s.checked and s.row_errors
             )
-            if result.total_errors == 0:
+            order_ok = not result.sheet_order_violations
+            if result.total_errors == 0 and order_ok:
                 self.status_var.set("Kontrola dokončena – žádné chyby nenalezeny.")
-            else:
+            elif result.total_errors == 0 and not order_ok:
+                self.status_var.set(
+                    f"Kontrola dokončena – data bez chyb, "
+                    f"ale pořadí listů není abecední "
+                    f"({len(result.sheet_order_violations)} listů na špatné pozici)."
+                )
+            elif result.total_errors > 0 and order_ok:
                 self.status_var.set(
                     f"Kontrola dokončena – nalezeno {result.total_errors} problematických řádků "
                     f"na {sheets_with_errors} listech."
+                )
+            else:
+                self.status_var.set(
+                    f"Kontrola dokončena – nalezeno {result.total_errors} problematických řádků "
+                    f"na {sheets_with_errors} listech; "
+                    f"pořadí listů není abecední "
+                    f"({len(result.sheet_order_violations)} listů na špatné pozici)."
                 )
         except Exception as exc:
             self._show_plain_text(f"CHYBA při čtení souboru:\n\n{exc}")
