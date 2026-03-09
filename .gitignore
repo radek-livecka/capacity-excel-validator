@@ -12,5 +12,10 @@ __pycache__/
 sledování_kapacit_2026.xlsx
 sledování_kapacit_test.xlsx
 
+# Instalátor — interní vývojářské soubory, distribuuje se jen hotové .msi
+installer.wxs
+build_installer.bat
+license.rtf
+
 # Claude interní data
 .claude/
