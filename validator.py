@@ -7,8 +7,12 @@ import tkinter as tk
 from tkinter import filedialog
 from dataclasses import dataclass, field
 from datetime import datetime
+import json
 import os
 import sys
+import threading
+import urllib.request
+import webbrowser
 
 # ── Volitelná závislost Pillow (pro zobrazení loga) ──────────────────────────
 try:
@@ -38,6 +42,10 @@ except ImportError:
         sys.exit(1)
 
 from tkinter import messagebox
+
+# ── Verze a distribuce ───────────────────────────────────────────────────────
+APP_VERSION = "1.1"
+GITHUB_REPO = "radek-livecka/capacity-excel-validator"
 
 # ── Konstanty ────────────────────────────────────────────────────────────────
 CHECK_START_ROW = 14
@@ -382,7 +390,7 @@ class ValidatorApp(tk.Tk):
 
     def __init__(self):
         super().__init__()
-        self.title("Validator kapacit v1.1")
+        self.title(f"Validator kapacit v{APP_VERSION}")
         self.geometry("800x600")
         self.minsize(640, 480)
         self.resizable(True, True)
@@ -396,6 +404,7 @@ class ValidatorApp(tk.Tk):
         self._load_brand_images()
         self._build_ui()
         self._configure_tags()
+        threading.Thread(target=self._check_for_update, daemon=True).start()
 
     def _load_brand_images(self):
         """Načte PNG assety přes Pillow; při chybě nastaví None (graceful fallback)."""
@@ -557,6 +566,39 @@ class ValidatorApp(tk.Tk):
         t.tag_configure("order_err",    font=("Consolas", 9),          foreground="#C05A00")
         t.tag_configure("summary",      font=("Consolas", 9, "bold"),  foreground="#1A1A1A")
         t.tag_configure("normal",       font=("Consolas", 9),          foreground="#1A1A1A")
+
+    def _check_for_update(self):
+        """Tiše zkontroluje GitHub API; pokud existuje novější verze, upozorní uživatele."""
+        try:
+            api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+            req = urllib.request.Request(api_url, headers={"User-Agent": "ValidatorKapacit"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read())
+            tag = data.get("tag_name", "").lstrip("v")
+            release_url = data.get("html_url", f"https://github.com/{GITHUB_REPO}/releases/latest")
+            if self._version_newer(tag, APP_VERSION):
+                self.after(0, self._show_update_dialog, tag, release_url)
+        except Exception:
+            pass  # offline, API limit nebo jiná chyba — tiché selhání
+
+    @staticmethod
+    def _version_newer(remote: str, local: str) -> bool:
+        try:
+            return (
+                tuple(int(x) for x in remote.split("."))
+                > tuple(int(x) for x in local.split("."))
+            )
+        except ValueError:
+            return False
+
+    def _show_update_dialog(self, version: str, url: str):
+        if messagebox.askyesno(
+            "Dostupná aktualizace",
+            f"Je k dispozici nová verze v{version}.\n\n"
+            f"Chcete otevřít stránku ke stažení?",
+            icon="info",
+        ):
+            webbrowser.open(url)
 
     def _pick_file(self):
         path = filedialog.askopenfilename(
