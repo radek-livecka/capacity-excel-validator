@@ -2,7 +2,7 @@
 
 Desktopová aplikace pro automatickou kontrolu Excelových souborů s kapacitními daty.
 
-Vytvořeno pro **[PARAMA Software](mailto:info@parama.cz)**.
+Autor: **[PARAMA Software](mailto:info@parama.cz)**
 
 ---
 
