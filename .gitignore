@@ -1,0 +1,15 @@
+# PyInstaller artefakty
+build/
+dist/
+*.spec
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Produkční / soukromá data
+sledování_kapacit_2026.xlsx
+
+# Claude interní data
+.claude/
